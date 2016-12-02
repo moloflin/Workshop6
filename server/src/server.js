@@ -7,6 +7,7 @@ var database = require('./database');
 var app = express();
 
 var StatusUpdateSchema = require('./schemas/statusupdate.json');
+var CommentSchema = require('./schemas/comment.json');
 var validate = require('express-jsonschema').validate;
 var writeDocument = database.writeDocument;
 var addDocument = database.addDocument;
@@ -154,6 +155,24 @@ function postStatusUpdate(user, location, contents) {
     }
 });
 
+//post a comment
+app.post('/feeditem/:feeditemid/comments',
+validate({ body: CommentSchema }), function(req, res) {
+  // If this function runs, `req.body` passed JSON validation!
+  var body = req.body;
+  var feedItemId = req.params.feeditemid;
+  var feedItem = database.readDocument('feedItems', feedItemId)
+  feedItem.comments.push({
+    "author": body.author,
+    "contents": body.contents,
+    "postDate": new Date().getTime(),
+    "likeCounter": []
+  });
+  writeDocument('feedItems', feedItem);
+  // Return a resolved version of the feed item.
+  res.send(getFeedItemSync(feedItemId));
+});
+
 // Update a feed item.
 app.put('/feeditem/:feeditemid/content', function(req, res) {
   var fromUser = getUserIdFromToken(req.get('Authorization'));
@@ -232,6 +251,21 @@ app.put('/feeditem/:feeditemid/likelist/:userid', function(req, res) {
   }
 });
 
+//like a comment
+app.put('/feeditem/:feeditemid/comments/:commentindex/likelist/:userid', function(req, res){
+  var feedItem = database.readDocument('feedItems', feedItemId);
+  var feedItemId = parseInt(req.params.feeditemid);
+  var comment = feedItem.comments[commentIdx];
+  var commentIdx = parseInt(req.params.commentindex);
+  var userId = parseInt(req.params.userid);
+  if (comment.likeCounter.indexOf(userId) === -1) {
+    comment.likeCounter.push(userId);
+    writeDocument('feedItems', feedItem);
+  }
+  comment.author = database.readDocument('users', comment.author);
+  res.send(comment);
+});
+
 // Unlike a feed item.
 app.delete('/feeditem/:feeditemid/likelist/:userid', function(req, res) {
   var fromUser = getUserIdFromToken(req.get('Authorization'));
@@ -255,6 +289,21 @@ app.delete('/feeditem/:feeditemid/likelist/:userid', function(req, res) {
     // 401: Unauthorized.
     res.status(401).end();
   }
+});
+
+//dislike a comment
+app.put('/feeditem/:feeditemid/comments/:commentindex/likelist/:userid', function(req, res){
+  var feedItem = database.readDocument('feedItems', feedItemId);
+  var feedItemId = parseInt(req.params.feeditemid);
+  var comment = feedItem.comments[commentIdx];
+  var commentIdx = parseInt(req.params.commentindex);
+  var userIndex = parseInt(req.params.userid);
+  if (userIndex !== -1) {
+    comment.likeCounter.splice(userIndex, 1);
+    writeDocument('feedItems', feedItem);
+  }
+  comment.author = database.readDocument('users', comment.author);
+  res.send(comment);
 });
 
 // Search for feed item
@@ -298,6 +347,11 @@ app.post('/resetdb', function(req, res) {
   res.send();
 });
 
+// Starts the server on port 3000!
+app.listen(3000, function () {
+  console.log('Example app listening on port 3000!');
+});
+
 /**
 * Translate JSON Schema Validation failures into error 400s.
 */
@@ -309,9 +363,4 @@ app.use(function(err, req, res, next) {
     // It's some other sort of error; pass it to next error middleware handler
     next(err);
   }
-});
-
-// Starts the server on port 3000!
-app.listen(3000, function () {
-  console.log('Example app listening on port 3000!');
 });
